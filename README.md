@@ -21,7 +21,7 @@
 | 显示 | SSD1306 0.96 英寸 128×64 I²C OLED | 3.3 V 供电，通常地址为 `0x3C` |
 | 输入 | EC11 旋转编码器模块、独立启停键 | 编码器负责调频和菜单选择 |
 | 模拟输出 | PA4/DAC_OUT1、1 kΩ串联电阻、BNC/SMA 转接 | 首轮直接连接高阻示波器，不加运放 |
-| 可选模拟输入 | B10K 线性电位器 | 接 PA0/ADC1_IN0，用于调幅或 ADC 演示 |
+| 可选模拟输入 | B10K 线性电位器 | 接 PA1/ADC1_IN1，避开板载 PA0/WK_UP 按键 |
 | 下载调试 | ST-Link V2 | 使用 SWDIO、SWCLK、GND、VTref 和 NRST |
 
 购买链接记录于 2026-09-05；电商页面可能修改标题或 SKU，实际器件以订单和到货丝印为准。
@@ -30,38 +30,24 @@
 
 | 功能 | MCU 引脚 | CubeMX 外设 |
 |---|---|---|
+| 板载 LED2 | PA8 | GPIO Output，低电平点亮 |
 | 波形输出 | PA4 | DAC_OUT1 |
 | OLED SCL/SDA | PB6/PB7 | I2C1 |
 | EC11 A/B | PA6/PA7 | TIM3_CH1/TIM3_CH2 Encoder Mode |
-| EC11 按键/启停键 | PB0/PB1 | GPIO Input，Pull-up |
-| 可选电位器 | PA0 | ADC1_IN0 |
-| 可选串口 | PA9/PA10 | USART1_TX/RX |
+| EC11 按键 | PB0 | GPIO Input，Pull-up |
+| 板载按键 | PA0、PC8、PC9 | WK_UP 为高有效，其余低有效 |
+| 可选电位器 | PA1 | ADC1_IN1 |
+| 板载 USB 转串口 | PA9/PA10 | USART1_TX/RX，经 CH340K 引出 |
 | 下载调试 | PA13/PA14 | SYS Serial Wire |
 
-## STM32CubeMX 首次配置
+## 快速开始
 
-本机已具备 STM32CubeMX 6.18.1、STM32CubeF1 1.8.7、CMake 3.22、GNU Arm GCC、OpenOCD 和 GDB。CubeMX 自带 Java，无需修改系统 `JAVA_HOME`。可从应用菜单启动，也可运行：
+需要 CMake 3.22 或更高版本、GNU Arm Embedded Toolchain、Make、OpenOCD 和 ST-Link。克隆后使用当前 CubeMX 生成的 CMake 工程构建：
 
 ```sh
-~/STM32CubeMX/STM32CubeMX
+git clone https://github.com/Kunzite1/SignGenerator.git
+cd SignGenerator
 ```
-
-CubeMX 当前配置步骤：
-
-1. 选择 **New Project → MCU/MPU Selector**，搜索并精确选择 `STM32F103RCT6`，不要选成 `STM32F103C8T6`。
-2. 在 **System Core → SYS** 中将 Debug 设为 **Serial Wire**；在 **RCC** 中根据实物配置 HSE。常见 8 MHz 无源晶振板选择 **Crystal/Ceramic Resonator**，到货后应先看原理图或晶振标识。
-3. 在 **Clock Configuration** 中设置 HSE 8 MHz、PLL ×9、SYSCLK 72 MHz、APB1 36 MHz、APB2 72 MHz。APB1 分频为 2 时，TIM6 定时器时钟仍为 72 MHz。
-4. 开启 **DAC Channel 1**，输出引脚为 PA4；Trigger 选 `TIM6 TRGO`，Output Buffer 开启。
-5. 开启 **TIM6**，Clock Source 选 Internal Clock，Trigger Output 选 **Update Event**。初始 PSC 可设 0、ARR 设 280，之后由程序按目标频率重算。
-6. 在 DAC 的 **DMA Settings** 中添加 Channel 1 请求：Mode=`Circular`、Memory Increment=`Enable`、Peripheral/Memory Data Width=`Half Word`，优先级可设 High。
-7. 开启 I2C1（PB6/PB7）和 TIM3 Encoder Mode（PA6/PA7）；PB0、PB1 配成上拉输入。USART1 和 ADC1_IN0 可等基本输出成功后再启用。
-8. 当前工程名和目录为 `stm32proj/`，语言 C、Toolchain/IDE=`CMake`。继续使用现有 `.ioc`，复制所需 HAL/CMSIS 文件到工程，并保持“每个外设生成独立 `.c/.h`”与保留 User Code。
-
-生成后首先核对：设备宏是 `STM32F103xE`，启动文件是 `startup_stm32f103xe.s`，链接脚本描述 256 KiB Flash/48 KiB RAM，编译参数使用 Cortex-M3 且没有 M4F 硬浮点选项。应提交 `.ioc`、`Core/`、`Drivers/`、`cmake/`、启动文件和链接脚本。
-
-## 构建与烧录
-
-本机暂未安装 Ninja，因此首个工程使用 Unix Makefiles。CubeMX 生成代码后，从仓库根目录执行：
 
 ```sh
 cmake -S stm32proj -B build/Debug -G "Unix Makefiles" \
@@ -70,13 +56,15 @@ cmake -S stm32proj -B build/Debug -G "Unix Makefiles" \
 cmake --build build/Debug --parallel
 ```
 
-实板和 ST-Link 到货后，先确认接线及 ELF 名称，再烧录：
+连接目标板的 SWDIO、SWCLK、GND、VTref 和 NRST 后烧录：
 
 ```sh
 openocd -f interface/stlink.cfg -f target/stm32f1x.cfg \
   -c "adapter speed 1000" \
   -c "program {build/Debug/stm32proj.elf} verify reset exit"
 ```
+
+硬件配置的唯一源文件是 [`stm32proj/stm32proj.ioc`](./stm32proj/stm32proj.ioc)。修改引脚或外设后用 STM32CubeMX 重新生成，再从全新的构建目录验证。
 
 ## 项目结构
 
