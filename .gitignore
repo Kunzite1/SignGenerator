@@ -1,0 +1,34 @@
+# Build outputs
+build/
+cmake-build-*/
+**/Debug/
+**/Release/
+*.o
+*.d
+*.su
+*.cyclo
+*.elf
+*.hex
+*.bin
+*.map
+*.list
+*.lst
+*.dep
+compile_commands.json
+
+# Local CMake and IDE state
+CMakeUserPresets.json
+.cache/
+.metadata/
+RemoteSystemsTempFiles/
+**/.settings/language.settings.xml
+
+# Editors and office lock files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.~*
+~$*.doc*
+
