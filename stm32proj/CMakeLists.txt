@@ -44,7 +44,10 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 
 # Add sources to executable
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
-    # Add user sources here
+    Core/Src/app_buttons.c
+    Core/Src/app_ui.c
+    Core/Src/ssd1306.c
+    Core/Src/waveform.c
 )
 
 # Add include paths

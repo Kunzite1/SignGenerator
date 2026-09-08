@@ -1,0 +1,275 @@
+#include "ssd1306.h"
+
+#include <stddef.h>
+#include <string.h>
+
+#define SSD1306_PAGE_COUNT      (SSD1306_HEIGHT / 8U)
+#define SSD1306_I2C_TIMEOUT_MS  25U
+#define SSD1306_CONTROL_COMMAND 0x00U
+#define SSD1306_CONTROL_DATA    0x40U
+
+/*
+ * Compact 5x7 project font. Lowercase input is rendered with uppercase glyphs
+ * to keep the table small; unsupported printable characters use '?'.
+ */
+static const uint8_t font5x7[96][5] = {
+    [' ' - 0x20] = {0x00U, 0x00U, 0x00U, 0x00U, 0x00U},
+    ['!' - 0x20] = {0x00U, 0x00U, 0x5FU, 0x00U, 0x00U},
+    ['"' - 0x20] = {0x00U, 0x07U, 0x00U, 0x07U, 0x00U},
+    ['#' - 0x20] = {0x14U, 0x7FU, 0x14U, 0x7FU, 0x14U},
+    ['$' - 0x20] = {0x24U, 0x2AU, 0x7FU, 0x2AU, 0x12U},
+    ['%' - 0x20] = {0x23U, 0x13U, 0x08U, 0x64U, 0x62U},
+    ['&' - 0x20] = {0x36U, 0x49U, 0x55U, 0x22U, 0x50U},
+    ['\'' - 0x20] = {0x00U, 0x05U, 0x03U, 0x00U, 0x00U},
+    ['(' - 0x20] = {0x00U, 0x1CU, 0x22U, 0x41U, 0x00U},
+    [')' - 0x20] = {0x00U, 0x41U, 0x22U, 0x1CU, 0x00U},
+    ['*' - 0x20] = {0x14U, 0x08U, 0x3EU, 0x08U, 0x14U},
+    ['+' - 0x20] = {0x08U, 0x08U, 0x3EU, 0x08U, 0x08U},
+    [',' - 0x20] = {0x00U, 0x50U, 0x30U, 0x00U, 0x00U},
+    ['-' - 0x20] = {0x08U, 0x08U, 0x08U, 0x08U, 0x08U},
+    ['.' - 0x20] = {0x00U, 0x60U, 0x60U, 0x00U, 0x00U},
+    ['/' - 0x20] = {0x20U, 0x10U, 0x08U, 0x04U, 0x02U},
+    ['0' - 0x20] = {0x3EU, 0x51U, 0x49U, 0x45U, 0x3EU},
+    ['1' - 0x20] = {0x00U, 0x42U, 0x7FU, 0x40U, 0x00U},
+    ['2' - 0x20] = {0x42U, 0x61U, 0x51U, 0x49U, 0x46U},
+    ['3' - 0x20] = {0x21U, 0x41U, 0x45U, 0x4BU, 0x31U},
+    ['4' - 0x20] = {0x18U, 0x14U, 0x12U, 0x7FU, 0x10U},
+    ['5' - 0x20] = {0x27U, 0x45U, 0x45U, 0x45U, 0x39U},
+    ['6' - 0x20] = {0x3CU, 0x4AU, 0x49U, 0x49U, 0x30U},
+    ['7' - 0x20] = {0x01U, 0x71U, 0x09U, 0x05U, 0x03U},
+    ['8' - 0x20] = {0x36U, 0x49U, 0x49U, 0x49U, 0x36U},
+    ['9' - 0x20] = {0x06U, 0x49U, 0x49U, 0x29U, 0x1EU},
+    [':' - 0x20] = {0x00U, 0x36U, 0x36U, 0x00U, 0x00U},
+    [';' - 0x20] = {0x00U, 0x56U, 0x36U, 0x00U, 0x00U},
+    ['<' - 0x20] = {0x08U, 0x14U, 0x22U, 0x41U, 0x00U},
+    ['=' - 0x20] = {0x14U, 0x14U, 0x14U, 0x14U, 0x14U},
+    ['>' - 0x20] = {0x00U, 0x41U, 0x22U, 0x14U, 0x08U},
+    ['?' - 0x20] = {0x02U, 0x01U, 0x51U, 0x09U, 0x06U},
+    ['@' - 0x20] = {0x32U, 0x49U, 0x79U, 0x41U, 0x3EU},
+    ['A' - 0x20] = {0x7EU, 0x11U, 0x11U, 0x11U, 0x7EU},
+    ['B' - 0x20] = {0x7FU, 0x49U, 0x49U, 0x49U, 0x36U},
+    ['C' - 0x20] = {0x3EU, 0x41U, 0x41U, 0x41U, 0x22U},
+    ['D' - 0x20] = {0x7FU, 0x41U, 0x41U, 0x22U, 0x1CU},
+    ['E' - 0x20] = {0x7FU, 0x49U, 0x49U, 0x49U, 0x41U},
+    ['F' - 0x20] = {0x7FU, 0x09U, 0x09U, 0x09U, 0x01U},
+    ['G' - 0x20] = {0x3EU, 0x41U, 0x49U, 0x49U, 0x7AU},
+    ['H' - 0x20] = {0x7FU, 0x08U, 0x08U, 0x08U, 0x7FU},
+    ['I' - 0x20] = {0x00U, 0x41U, 0x7FU, 0x41U, 0x00U},
+    ['J' - 0x20] = {0x20U, 0x40U, 0x41U, 0x3FU, 0x01U},
+    ['K' - 0x20] = {0x7FU, 0x08U, 0x14U, 0x22U, 0x41U},
+    ['L' - 0x20] = {0x7FU, 0x40U, 0x40U, 0x40U, 0x40U},
+    ['M' - 0x20] = {0x7FU, 0x02U, 0x0CU, 0x02U, 0x7FU},
+    ['N' - 0x20] = {0x7FU, 0x04U, 0x08U, 0x10U, 0x7FU},
+    ['O' - 0x20] = {0x3EU, 0x41U, 0x41U, 0x41U, 0x3EU},
+    ['P' - 0x20] = {0x7FU, 0x09U, 0x09U, 0x09U, 0x06U},
+    ['Q' - 0x20] = {0x3EU, 0x41U, 0x51U, 0x21U, 0x5EU},
+    ['R' - 0x20] = {0x7FU, 0x09U, 0x19U, 0x29U, 0x46U},
+    ['S' - 0x20] = {0x46U, 0x49U, 0x49U, 0x49U, 0x31U},
+    ['T' - 0x20] = {0x01U, 0x01U, 0x7FU, 0x01U, 0x01U},
+    ['U' - 0x20] = {0x3FU, 0x40U, 0x40U, 0x40U, 0x3FU},
+    ['V' - 0x20] = {0x1FU, 0x20U, 0x40U, 0x20U, 0x1FU},
+    ['W' - 0x20] = {0x3FU, 0x40U, 0x38U, 0x40U, 0x3FU},
+    ['X' - 0x20] = {0x63U, 0x14U, 0x08U, 0x14U, 0x63U},
+    ['Y' - 0x20] = {0x07U, 0x08U, 0x70U, 0x08U, 0x07U},
+    ['Z' - 0x20] = {0x61U, 0x51U, 0x49U, 0x45U, 0x43U},
+    ['[' - 0x20] = {0x00U, 0x7FU, 0x41U, 0x41U, 0x00U},
+    ['\\' - 0x20] = {0x02U, 0x04U, 0x08U, 0x10U, 0x20U},
+    [']' - 0x20] = {0x00U, 0x41U, 0x41U, 0x7FU, 0x00U},
+    ['^' - 0x20] = {0x04U, 0x02U, 0x01U, 0x02U, 0x04U},
+    ['_' - 0x20] = {0x40U, 0x40U, 0x40U, 0x40U, 0x40U},
+    ['`' - 0x20] = {0x00U, 0x01U, 0x02U, 0x04U, 0x00U},
+    ['{' - 0x20] = {0x00U, 0x08U, 0x36U, 0x41U, 0x00U},
+    ['|' - 0x20] = {0x00U, 0x00U, 0x7FU, 0x00U, 0x00U},
+    ['}' - 0x20] = {0x00U, 0x41U, 0x36U, 0x08U, 0x00U},
+    ['~' - 0x20] = {0x08U, 0x04U, 0x08U, 0x10U, 0x08U}
+};
+
+static I2C_HandleTypeDef *display_i2c;
+static uint16_t display_address;
+static uint8_t frame_buffer[SSD1306_WIDTH * SSD1306_PAGE_COUNT];
+static bool display_initialized;
+
+static HAL_StatusTypeDef ssd1306_write_commands(const uint8_t *commands, uint8_t count)
+{
+    uint8_t packet[32];
+
+    if ((display_i2c == NULL) || (commands == NULL) || (count == 0U)
+        || (count >= sizeof(packet))) {
+        return HAL_ERROR;
+    }
+
+    packet[0] = SSD1306_CONTROL_COMMAND;
+    memcpy(&packet[1], commands, count);
+    return HAL_I2C_Master_Transmit(
+        display_i2c,
+        display_address,
+        packet,
+        (uint16_t)count + 1U,
+        SSD1306_I2C_TIMEOUT_MS
+    );
+}
+
+static void ssd1306_draw_pixel(uint8_t x, uint8_t y, bool pixel_on)
+{
+    uint16_t index;
+    uint8_t mask;
+
+    if ((x >= SSD1306_WIDTH) || (y >= SSD1306_HEIGHT)) {
+        return;
+    }
+
+    index = (uint16_t)x + ((uint16_t)(y / 8U) * SSD1306_WIDTH);
+    mask = (uint8_t)(1U << (y % 8U));
+    if (pixel_on) {
+        frame_buffer[index] |= mask;
+    } else {
+        frame_buffer[index] &= (uint8_t)~mask;
+    }
+}
+
+HAL_StatusTypeDef ssd1306_init(I2C_HandleTypeDef *i2c, uint8_t address_7bit)
+{
+    static const uint8_t init_commands[] = {
+        0xAEU,
+        0xD5U, 0x80U,
+        0xA8U, 0x3FU,
+        0xD3U, 0x00U,
+        0x40U,
+        0x8DU, 0x14U,
+        0x20U, 0x02U,
+        0xA1U,
+        0xC8U,
+        0xDAU, 0x12U,
+        0x81U, 0xCFU,
+        0xD9U, 0xF1U,
+        0xDBU, 0x40U,
+        0xA4U,
+        0xA6U,
+        0xAFU
+    };
+    HAL_StatusTypeDef status;
+
+    if ((i2c == NULL) || (address_7bit > 0x7FU)) {
+        return HAL_ERROR;
+    }
+
+    display_i2c = i2c;
+    /* STM32 HAL expects the 7-bit address in bits 7:1. */
+    display_address = (uint16_t)address_7bit << 1U;
+    display_initialized = false;
+
+    status = HAL_I2C_IsDeviceReady(
+        display_i2c,
+        display_address,
+        2U,
+        SSD1306_I2C_TIMEOUT_MS
+    );
+    if (status != HAL_OK) {
+        return status;
+    }
+
+    status = ssd1306_write_commands(init_commands, sizeof(init_commands));
+    if (status != HAL_OK) {
+        return status;
+    }
+
+    display_initialized = true;
+    ssd1306_clear(false);
+    return ssd1306_refresh();
+}
+
+void ssd1306_clear(bool pixel_on)
+{
+    memset(frame_buffer, pixel_on ? 0xFF : 0x00, sizeof(frame_buffer));
+}
+
+void ssd1306_draw_char(uint8_t x, uint8_t y, char character)
+{
+    const uint8_t *glyph;
+    uint8_t code = (uint8_t)character;
+
+    if ((code >= (uint8_t)'a') && (code <= (uint8_t)'z')) {
+        code = (uint8_t)(code - ((uint8_t)'a' - (uint8_t)'A'));
+    }
+    if ((code < 0x20U) || (code > 0x7EU)) {
+        code = (uint8_t)'?';
+    }
+
+    glyph = font5x7[code - 0x20U];
+    if ((code != (uint8_t)' ')
+        && (glyph[0] == 0U) && (glyph[1] == 0U) && (glyph[2] == 0U)
+        && (glyph[3] == 0U) && (glyph[4] == 0U)) {
+        glyph = font5x7[(uint8_t)'?' - 0x20U];
+    }
+
+    for (uint8_t column = 0U; column < 6U; ++column) {
+        uint8_t pixels = (column < 5U) ? glyph[column] : 0U;
+
+        for (uint8_t row = 0U; row < 8U; ++row) {
+            ssd1306_draw_pixel(
+                (uint8_t)(x + column),
+                (uint8_t)(y + row),
+                (pixels & (uint8_t)(1U << row)) != 0U
+            );
+        }
+    }
+}
+
+void ssd1306_draw_text(uint8_t x, uint8_t y, const char *text)
+{
+    uint8_t cursor_x = x;
+
+    if (text == NULL) {
+        return;
+    }
+
+    while ((*text != '\0') && (cursor_x <= (SSD1306_WIDTH - 6U))) {
+        ssd1306_draw_char(cursor_x, y, *text);
+        cursor_x = (uint8_t)(cursor_x + 6U);
+        ++text;
+    }
+}
+
+HAL_StatusTypeDef ssd1306_refresh(void)
+{
+    uint8_t data_packet[SSD1306_WIDTH + 1U];
+
+    if (!display_initialized || (display_i2c == NULL)) {
+        return HAL_ERROR;
+    }
+
+    data_packet[0] = SSD1306_CONTROL_DATA;
+    for (uint8_t page = 0U; page < SSD1306_PAGE_COUNT; ++page) {
+        uint8_t page_commands[] = {
+            (uint8_t)(0xB0U | page),
+            0x00U,
+            0x10U
+        };
+        HAL_StatusTypeDef status = ssd1306_write_commands(
+            page_commands,
+            sizeof(page_commands)
+        );
+
+        if (status != HAL_OK) {
+            return status;
+        }
+
+        memcpy(
+            &data_packet[1],
+            &frame_buffer[(uint16_t)page * SSD1306_WIDTH],
+            SSD1306_WIDTH
+        );
+        status = HAL_I2C_Master_Transmit(
+            display_i2c,
+            display_address,
+            data_packet,
+            sizeof(data_packet),
+            SSD1306_I2C_TIMEOUT_MS
+        );
+        if (status != HAL_OK) {
+            return status;
+        }
+    }
+
+    return HAL_OK;
+}

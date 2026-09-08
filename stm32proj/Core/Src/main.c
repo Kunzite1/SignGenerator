@@ -28,6 +28,12 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
+#include <stdio.h>
+
+#include "app_buttons.h"
+#include "app_ui.h"
+#include "waveform.h"
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -37,6 +43,9 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+
+#define DISPLAY_POWER_ON_DELAY_MS  50U
+#define DISPLAY_RETRY_PERIOD_MS    2000U
 
 /* USER CODE END PD */
 
@@ -49,16 +58,172 @@
 
 /* USER CODE BEGIN PV */
 
+static uint32_t display_last_attempt_ms;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
 
+static int32_t app_get_frequency_step(bool increase);
+static void app_handle_buttons(app_button_event_t events);
+static void app_refresh_status(void);
+static void app_report_status(void);
+static void app_service_display(void);
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+static int32_t app_get_frequency_step(bool increase)
+{
+  uint32_t frequency_hz = waveform_get_frequency();
+  int32_t step_hz;
+
+  if (increase)
+  {
+    if (frequency_hz < 10U)
+    {
+      step_hz = 1;
+    }
+    else if (frequency_hz < 100U)
+    {
+      step_hz = 10;
+    }
+    else if (frequency_hz < 1000U)
+    {
+      step_hz = 100;
+    }
+    else
+    {
+      step_hz = 1000;
+    }
+  }
+  else
+  {
+    if (frequency_hz <= 10U)
+    {
+      step_hz = 1;
+    }
+    else if (frequency_hz <= 100U)
+    {
+      step_hz = 10;
+    }
+    else if (frequency_hz <= 1000U)
+    {
+      step_hz = 100;
+    }
+    else
+    {
+      step_hz = 1000;
+    }
+    step_hz = -step_hz;
+  }
+
+  return step_hz;
+}
+
+static void app_handle_buttons(app_button_event_t events)
+{
+  HAL_StatusTypeDef status = HAL_OK;
+
+  if ((events & APP_BUTTON_EVENT_START_STOP) != 0U)
+  {
+    status = waveform_toggle();
+  }
+  if ((status == HAL_OK) && ((events & APP_BUTTON_EVENT_WAVE_NEXT) != 0U))
+  {
+    status = waveform_next_type();
+  }
+
+  /* Ignore contradictory frequency events caused by pressing both keys. */
+  if ((status == HAL_OK)
+      && ((events & (APP_BUTTON_EVENT_FREQ_DOWN | APP_BUTTON_EVENT_FREQ_UP))
+          == APP_BUTTON_EVENT_FREQ_DOWN))
+  {
+    status = waveform_step_frequency(app_get_frequency_step(false));
+  }
+  else if ((status == HAL_OK)
+           && ((events & (APP_BUTTON_EVENT_FREQ_DOWN | APP_BUTTON_EVENT_FREQ_UP))
+               == APP_BUTTON_EVENT_FREQ_UP))
+  {
+    status = waveform_step_frequency(app_get_frequency_step(true));
+  }
+
+  if (status != HAL_OK)
+  {
+    Error_Handler();
+  }
+}
+
+static void app_refresh_status(void)
+{
+  app_ui_state_t ui_state = {
+    .waveform_name = waveform_type_name(waveform_get_type()),
+    .set_frequency_hz = waveform_get_frequency(),
+    .actual_frequency_millihz = waveform_get_actual_frequency_millihz(),
+    .running = waveform_is_running()
+  };
+
+  HAL_GPIO_WritePin(
+      STATUS_LED_GPIO_Port,
+      STATUS_LED_Pin,
+      ui_state.running ? GPIO_PIN_RESET : GPIO_PIN_SET);
+  (void)app_ui_render(&ui_state);
+}
+
+static void app_report_status(void)
+{
+  char message[96];
+  uint32_t actual_millihz = waveform_get_actual_frequency_millihz();
+  int length;
+
+  length = snprintf(
+      message,
+      sizeof(message),
+      "wave=%s set=%luHz actual=%lu.%03luHz points=%lu state=%s\r\n",
+      waveform_type_name(waveform_get_type()),
+      (unsigned long)waveform_get_frequency(),
+      (unsigned long)(actual_millihz / 1000U),
+      (unsigned long)(actual_millihz % 1000U),
+      (unsigned long)waveform_get_sample_count(),
+      waveform_is_running() ? "RUN" : "STOP");
+
+  if (length > 0)
+  {
+    uint16_t transmit_length = (uint16_t)length;
+
+    if ((size_t)length >= sizeof(message))
+    {
+      transmit_length = (uint16_t)(sizeof(message) - 1U);
+    }
+    (void)HAL_UART_Transmit(
+        &huart1,
+        (uint8_t *)message,
+        transmit_length,
+        50U);
+  }
+}
+
+static void app_service_display(void)
+{
+  uint32_t now = HAL_GetTick();
+
+  if (app_ui_is_ready()
+      || ((uint32_t)(now - display_last_attempt_ms)
+          < DISPLAY_RETRY_PERIOD_MS))
+  {
+    return;
+  }
+
+  display_last_attempt_ms = now;
+  if (app_ui_init() == HAL_OK)
+  {
+    app_refresh_status();
+  }
+}
 
 /* USER CODE END 0 */
 
@@ -98,6 +263,22 @@ int main(void)
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
 
+  app_buttons_init();
+  if (waveform_init() != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (waveform_start() != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  HAL_Delay(DISPLAY_POWER_ON_DELAY_MS);
+  display_last_attempt_ms = HAL_GetTick();
+  (void)app_ui_init();
+  app_refresh_status();
+  app_report_status();
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -107,6 +288,17 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    app_button_event_t events = app_buttons_poll();
+
+    if (events != APP_BUTTON_EVENT_NONE)
+    {
+      app_handle_buttons(events);
+      app_refresh_status();
+      app_report_status();
+    }
+
+    app_service_display();
+    HAL_Delay(1U);
   }
   /* USER CODE END 3 */
 }
