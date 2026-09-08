@@ -23,7 +23,7 @@ Validation is manual. Confirm sine, square, triangle, and sawtooth outputs; exte
 
 ## Commit & Pull Request Guidelines
 
-No Git history is present in this copy. Use short imperative subjects, such as `Add square-wave measurement results`, and keep commits focused. Pull requests should summarize the change, identify the board/toolchain, list validation performed, link related issues, and include before/after layout images or waveform captures. Explain binary `.doc` changes explicitly because line-based review is unavailable.
+Use Conventional Commits with an English type and a concise Chinese subject, such as `feat: 添加正弦波DMA输出`, `fix: 修正频率换算误差`, or `docs: 更新示波器测试记录`. Common types are `feat`, `fix`, `docs`, `refactor`, `test`, `build`, and `chore`. Keep commits focused. Pull requests should summarize the change, identify the board/toolchain, list validation performed, link related issues, and include before/after layout images or waveform captures. Explain binary `.doc` changes explicitly because line-based review is unavailable.
 
 ## Security & Configuration
 
