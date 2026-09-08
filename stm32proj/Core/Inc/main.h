@@ -57,6 +57,16 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define KEY_START_STOP_Pin GPIO_PIN_12
+#define KEY_START_STOP_GPIO_Port GPIOB
+#define KEY_WAVE_Pin GPIO_PIN_13
+#define KEY_WAVE_GPIO_Port GPIOB
+#define KEY_FREQ_DOWN_Pin GPIO_PIN_14
+#define KEY_FREQ_DOWN_GPIO_Port GPIOB
+#define KEY_FREQ_UP_Pin GPIO_PIN_15
+#define KEY_FREQ_UP_GPIO_Port GPIOB
+#define STATUS_LED_Pin GPIO_PIN_8
+#define STATUS_LED_GPIO_Port GPIOA
 
 /* USER CODE BEGIN Private defines */
 
