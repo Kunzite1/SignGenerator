@@ -2,7 +2,8 @@
 
 set -Eeuo pipefail
 
-readonly REPO_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+readonly REPO_DIR="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 
 build_type="Debug"
 build_before_flash=true
@@ -13,7 +14,7 @@ target_config="${SIGNGEN_OPENOCD_TARGET:-target/stm32f1x.cfg}"
 
 usage() {
     cat <<'EOF'
-用法：./32flash.sh [Debug|Release] [--no-build] [--dry-run]
+用法：./stm32proj/32flash.sh [Debug|Release] [--no-build] [--dry-run]
 
 选项：
   Debug|Release  选择待烧录构建，默认为 Debug
@@ -64,7 +65,7 @@ if [[ ! "${adapter_speed}" =~ ^[1-9][0-9]*$ ]]; then
 fi
 
 if [[ "${build_before_flash}" == true ]]; then
-    "${REPO_DIR}/32build.sh" "${build_type}"
+    "${SCRIPT_DIR}/32build.sh" "${build_type}"
 fi
 
 if ! command -v openocd >/dev/null 2>&1; then
@@ -75,7 +76,7 @@ fi
 readonly ELF_FILE="${REPO_DIR}/build/${build_type}/stm32proj.elf"
 if [[ ! -s "${ELF_FILE}" ]]; then
     echo "错误：未找到待烧录固件 '${ELF_FILE}'。" >&2
-    echo "请先运行 './32build.sh ${build_type}'。" >&2
+    echo "请先运行 './stm32proj/32build.sh ${build_type}'。" >&2
     exit 1
 fi
 

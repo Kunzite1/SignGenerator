@@ -8,10 +8,10 @@ Firmware lives under `stm32proj/`: CubeMX-generated code is in `Core/`, HAL/CMSI
 
 Use the repository scripts from its root:
 
-- `./32build.sh` — configure and build Debug firmware, then create ELF, HEX, and BIN artifacts under `build/Debug/`.
-- `./32build.sh Release --clean` — perform a fresh size-optimized build.
-- `./32flash.sh` — rebuild, then program and verify through ST-Link/OpenOCD.
-- `./32flash.sh --no-build --dry-run` — validate the flash command without accessing hardware.
+- `./stm32proj/32build.sh` — configure and build Debug firmware, then create ELF, HEX, and BIN artifacts under `build/Debug/`.
+- `./stm32proj/32build.sh Release --clean` — perform a fresh size-optimized build.
+- `./stm32proj/32flash.sh` — rebuild, then program and verify through ST-Link/OpenOCD.
+- `./stm32proj/32flash.sh --no-build --dry-run` — validate the flash command without accessing hardware.
 
 There is not yet an automated target-side test suite. Always build both configurations and run `git -c core.whitespace=cr-at-eol diff --check` before committing; CubeMX files use CRLF. Hardware changes require oscilloscope validation after the board is available.
 
