@@ -11,7 +11,7 @@
  * events, but the receive path is still drained so stray host input cannot
  * latch the overrun flag.
  */
-#define APP_SERIAL_KEY_CONTROL  0
+#define APP_SERIAL_KEY_CONTROL  1
 
 static bool initialized;
 
