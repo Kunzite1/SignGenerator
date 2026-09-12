@@ -14,6 +14,7 @@ static bool previous_state_valid;
 static uint32_t previous_set_frequency_hz;
 static uint32_t previous_actual_frequency_millihz;
 static bool previous_running;
+static bool previous_sample_rate_mode;
 static char previous_waveform_name[UI_WAVEFORM_NAME_SIZE];
 
 static void copy_waveform_name(char *destination, const char *source)
@@ -54,6 +55,7 @@ HAL_StatusTypeDef app_ui_render(const app_ui_state_t *state)
         && (state->set_frequency_hz == previous_set_frequency_hz)
         && (state->actual_frequency_millihz == previous_actual_frequency_millihz)
         && (state->running == previous_running)
+        && (state->sample_rate_mode == previous_sample_rate_mode)
         && (strncmp(
             waveform_name,
             previous_waveform_name,
@@ -67,22 +69,40 @@ HAL_StatusTypeDef app_ui_render(const app_ui_state_t *state)
     (void)snprintf(line, sizeof(line), "WAVE : %s", waveform_name);
     ssd1306_draw_text(0U, 0U, line);
 
-    (void)snprintf(
-        line,
-        sizeof(line),
-        "SET  : %lu HZ",
-        (unsigned long)state->set_frequency_hz
-    );
-    ssd1306_draw_text(0U, 16U, line);
+    if (state->sample_rate_mode) {
+        (void)snprintf(
+            line,
+            sizeof(line),
+            "RATE : %lu SPS",
+            (unsigned long)state->set_frequency_hz
+        );
+        ssd1306_draw_text(0U, 16U, line);
 
-    (void)snprintf(
-        line,
-        sizeof(line),
-        "OUT  : %lu.%03lu HZ",
-        (unsigned long)(state->actual_frequency_millihz / 1000U),
-        (unsigned long)(state->actual_frequency_millihz % 1000U)
-    );
-    ssd1306_draw_text(0U, 32U, line);
+        (void)snprintf(
+            line,
+            sizeof(line),
+            "OUT  : %lu SPS",
+            (unsigned long)(state->actual_frequency_millihz / 1000U)
+        );
+        ssd1306_draw_text(0U, 32U, line);
+    } else {
+        (void)snprintf(
+            line,
+            sizeof(line),
+            "SET  : %lu HZ",
+            (unsigned long)state->set_frequency_hz
+        );
+        ssd1306_draw_text(0U, 16U, line);
+
+        (void)snprintf(
+            line,
+            sizeof(line),
+            "OUT  : %lu.%03lu HZ",
+            (unsigned long)(state->actual_frequency_millihz / 1000U),
+            (unsigned long)(state->actual_frequency_millihz % 1000U)
+        );
+        ssd1306_draw_text(0U, 32U, line);
+    }
 
     (void)snprintf(
         line,
@@ -101,6 +121,7 @@ HAL_StatusTypeDef app_ui_render(const app_ui_state_t *state)
     previous_set_frequency_hz = state->set_frequency_hz;
     previous_actual_frequency_millihz = state->actual_frequency_millihz;
     previous_running = state->running;
+    previous_sample_rate_mode = state->sample_rate_mode;
     memcpy(
         previous_waveform_name,
         waveform_name,
