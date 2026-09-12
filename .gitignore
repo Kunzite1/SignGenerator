@@ -39,3 +39,7 @@ Thumbs.db
 
 # Local course brief/report template (do not publish)
 /二级项目任务书-报告模板-注意事项-模电实验室新位置.doc
+
+# Local AI assistant conventions (keep on disk, do not publish)
+CLAUDE.md
+AGENTS.md
