@@ -24,6 +24,10 @@ CMakeUserPresets.json
 RemoteSystemsTempFiles/
 **/.settings/language.settings.xml
 
+# Python tooling artifacts
+__pycache__/
+*.pyc
+
 # Editors and office lock files
 .DS_Store
 Thumbs.db
