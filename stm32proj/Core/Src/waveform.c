@@ -1,5 +1,7 @@
 #include "waveform.h"
 
+#include <stddef.h>
+
 #include "dac.h"
 #include "tim.h"
 
@@ -9,6 +11,14 @@
 #define WAVEFORM_DAC_SPAN        \
     (WAVEFORM_DAC_MAX_VALUE - WAVEFORM_DAC_MIN_VALUE)
 #define TIMER_DIVIDER_MAX        65536ULL
+
+/*
+ * Noise source. The seed is fixed on purpose: a captured trace can be
+ * reproduced. xorshift32 never reaches zero from a non-zero state, so the
+ * sequence cannot collapse.
+ */
+#define WAVEFORM_NOISE_SEED       0x2545F491U
+#define WAVEFORM_NOISE_HALF_COUNT (WAVEFORM_MAX_SAMPLE_COUNT / 2U)
 
 /*
  * One normalized cycle of an offset-binary sine wave. Values are rescaled
@@ -59,6 +69,16 @@ static uint32_t active_sample_count = WAVEFORM_MAX_SAMPLE_COUNT;
 static uint32_t timer_clock_hz;
 static bool initialized;
 static bool running;
+
+static uint32_t noise_state = WAVEFORM_NOISE_SEED;
+static uint32_t requested_sample_rate_hz = WAVEFORM_NOISE_DEFAULT_RATE_HZ;
+static uint32_t actual_sample_rate_millihz;
+
+/*
+ * Set while the noise type is streaming, so the DMA half/full callbacks know
+ * they own the sample table. Only ever changed with the output stopped.
+ */
+static volatile bool noise_active;
 
 static uint32_t waveform_read_timer_clock(void)
 {
@@ -146,14 +166,75 @@ static void waveform_fill_samples(waveform_type_t type, uint32_t sample_count)
     }
 }
 
+static uint32_t waveform_next_random(void)
+{
+    /* xorshift32: a handful of instructions, which is what the refill needs. */
+    noise_state ^= noise_state << 13;
+    noise_state ^= noise_state >> 17;
+    noise_state ^= noise_state << 5;
+
+    return noise_state;
+}
+
+/**
+ * @brief Replace count samples starting at first with fresh white noise.
+ *
+ * The codes stay inside the same window as the periodic waveforms. Scaling is
+ * a multiply and a shift because the span (3584) is not a power of two and a
+ * modulo would drag in __aeabi_uidiv -- Cortex-M3 has no hardware divide.
+ * Clamping 12-bit values instead would pile the distribution up on both ends
+ * of the window, which is not a flat noise distribution.
+ */
+static void waveform_fill_noise(uint32_t first, uint32_t count)
+{
+    uint32_t i;
+
+    for (i = 0U; i < count; ++i)
+    {
+        uint32_t random = waveform_next_random();
+
+        waveform_samples[first + i] = (uint16_t)(
+            WAVEFORM_DAC_MIN_VALUE
+            + (((random & 0xFFFFU) * WAVEFORM_DAC_SPAN) >> 16U));
+    }
+}
+
+/*
+ * Noise refill. The DAC streams the table circularly, so on a half/full
+ * transfer the half that just finished is free until the DMA wraps back to it
+ * N/2 samples later: that is the deadline, and refilling only the free half is
+ * what stops the DMA from reading a half-written buffer. Refilling the whole
+ * table on the completion interrupt alone would be too late, because the DMA
+ * restarts at sample 0 immediately.
+ *
+ * These are HAL_DAC's weak callbacks; the interrupt plumbing itself lives in
+ * stm32f1xx_it.c (DMA2_Channel3_IRQHandler) and dma.c (NVIC enabled).
+ */
+void HAL_DAC_ConvHalfCpltCallbackCh1(DAC_HandleTypeDef *hdac)
+{
+    (void)hdac;
+
+    if (noise_active)
+    {
+        waveform_fill_noise(0U, WAVEFORM_NOISE_HALF_COUNT);
+    }
+}
+
+void HAL_DAC_ConvCpltCallbackCh1(DAC_HandleTypeDef *hdac)
+{
+    (void)hdac;
+
+    if (noise_active)
+    {
+        waveform_fill_noise(WAVEFORM_NOISE_HALF_COUNT, WAVEFORM_NOISE_HALF_COUNT);
+    }
+}
+
 static uint32_t waveform_calculate_actual_millihz(
     uint64_t prescaler_divider,
-    uint64_t period_divider,
-    uint32_t sample_count)
+    uint64_t period_divider)
 {
-    uint64_t total_divider = prescaler_divider
-                             * period_divider
-                             * sample_count;
+    uint64_t total_divider = prescaler_divider * period_divider;
 
     return (uint32_t)(
         (((uint64_t)timer_clock_hz * 1000ULL)
@@ -166,26 +247,35 @@ static uint64_t waveform_absolute_difference(uint64_t first, uint64_t second)
     return (first > second) ? (first - second) : (second - first);
 }
 
-static HAL_StatusTypeDef waveform_configure_timer(
-    uint32_t frequency_hz,
-    uint32_t sample_count)
+/**
+ * @brief Program TIM6 to trigger at update_rate_hz.
+ *
+ * Shared by both output modes: the periodic waveforms ask for
+ * frequency x sample_count updates per second, the noise type asks for its
+ * sample rate directly. The achieved rate is reported in millihz.
+ */
+static HAL_StatusTypeDef waveform_program_timer(
+    uint32_t update_rate_hz,
+    uint32_t *actual_millihz)
 {
-    uint64_t sample_rate_hz;
     uint64_t prescaler_divider;
     uint64_t period_divider;
     uint64_t alternate_period_divider;
     uint64_t period_denominator;
-    uint64_t requested_frequency_millihz;
-    uint32_t candidate_frequency_millihz;
-    uint32_t alternate_frequency_millihz;
+    uint64_t requested_millihz;
+    uint32_t candidate_millihz;
+    uint32_t alternate_millihz;
 
-    sample_rate_hz = (uint64_t)frequency_hz * sample_count;
+    if ((update_rate_hz == 0U) || (actual_millihz == NULL))
+    {
+        return HAL_ERROR;
+    }
 
     /* Choose the smallest prescaler that lets the 16-bit ARR fit. */
     prescaler_divider =
         ((uint64_t)timer_clock_hz
-         + (sample_rate_hz * TIMER_DIVIDER_MAX) - 1ULL)
-        / (sample_rate_hz * TIMER_DIVIDER_MAX);
+         + ((uint64_t)update_rate_hz * TIMER_DIVIDER_MAX) - 1ULL)
+        / ((uint64_t)update_rate_hz * TIMER_DIVIDER_MAX);
 
     if (prescaler_divider < 1ULL)
     {
@@ -196,8 +286,8 @@ static HAL_StatusTypeDef waveform_configure_timer(
         return HAL_ERROR;
     }
 
-    /* Test both adjacent ARR values and keep the closest output frequency. */
-    period_denominator = sample_rate_hz * prescaler_divider;
+    /* Test both adjacent ARR values and keep the closest update rate. */
+    period_denominator = (uint64_t)update_rate_hz * prescaler_divider;
     period_divider = (uint64_t)timer_clock_hz / period_denominator;
 
     if (period_divider < 1ULL)
@@ -216,25 +306,19 @@ static HAL_StatusTypeDef waveform_configure_timer(
         alternate_period_divider = period_divider + 1ULL;
     }
 
-    requested_frequency_millihz = (uint64_t)frequency_hz * 1000ULL;
-    candidate_frequency_millihz = waveform_calculate_actual_millihz(
+    requested_millihz = (uint64_t)update_rate_hz * 1000ULL;
+    candidate_millihz = waveform_calculate_actual_millihz(
         prescaler_divider,
-        period_divider,
-        sample_count);
-    alternate_frequency_millihz = waveform_calculate_actual_millihz(
+        period_divider);
+    alternate_millihz = waveform_calculate_actual_millihz(
         prescaler_divider,
-        alternate_period_divider,
-        sample_count);
+        alternate_period_divider);
 
-    if (waveform_absolute_difference(
-            alternate_frequency_millihz,
-            requested_frequency_millihz)
-        < waveform_absolute_difference(
-            candidate_frequency_millihz,
-            requested_frequency_millihz))
+    if (waveform_absolute_difference(alternate_millihz, requested_millihz)
+        < waveform_absolute_difference(candidate_millihz, requested_millihz))
     {
         period_divider = alternate_period_divider;
-        candidate_frequency_millihz = alternate_frequency_millihz;
+        candidate_millihz = alternate_millihz;
     }
 
     htim6.Init.Prescaler = (uint32_t)(prescaler_divider - 1ULL);
@@ -244,9 +328,37 @@ static HAL_StatusTypeDef waveform_configure_timer(
     __HAL_TIM_SET_COUNTER(&htim6, 0U);
     htim6.Instance->EGR = TIM_EVENTSOURCE_UPDATE;
 
-    actual_frequency_millihz = candidate_frequency_millihz;
+    *actual_millihz = candidate_millihz;
 
     return HAL_OK;
+}
+
+/** Periodic types: one output cycle spans sample_count timer updates. */
+static HAL_StatusTypeDef waveform_configure_timer(
+    uint32_t frequency_hz,
+    uint32_t sample_count)
+{
+    HAL_StatusTypeDef status;
+    uint32_t timer_millihz;
+
+    status = waveform_program_timer(
+        frequency_hz * sample_count,
+        &timer_millihz);
+
+    if (status == HAL_OK)
+    {
+        actual_frequency_millihz = timer_millihz / sample_count;
+    }
+
+    return status;
+}
+
+/** Noise: the timer update rate is the sample rate itself. */
+static HAL_StatusTypeDef waveform_configure_noise_timer(void)
+{
+    return waveform_program_timer(
+        requested_sample_rate_hz,
+        &actual_sample_rate_millihz);
 }
 
 HAL_StatusTypeDef waveform_init(void)
@@ -322,8 +434,20 @@ HAL_StatusTypeDef waveform_start(void)
         return status;
     }
 
-    /* Static circular data needs no half/full-transfer callback interrupts. */
-    __HAL_DMA_DISABLE_IT(hdac.DMA_Handle1, DMA_IT_HT | DMA_IT_TC);
+    /*
+     * Noise regenerates each half buffer inside the transfer callbacks, so it
+     * needs those interrupts; the static periodic tables must not get them.
+     * HAL_DAC_Start_DMA() leaves them enabled, hence the explicit disable.
+     */
+    noise_active = (current_type == WAVEFORM_NOISE);
+    if (noise_active)
+    {
+        __HAL_DMA_ENABLE_IT(hdac.DMA_Handle1, DMA_IT_HT | DMA_IT_TC);
+    }
+    else
+    {
+        __HAL_DMA_DISABLE_IT(hdac.DMA_Handle1, DMA_IT_HT | DMA_IT_TC);
+    }
 
     status = HAL_TIM_Base_Start(&htim6);
     if (status != HAL_OK)
@@ -348,6 +472,10 @@ HAL_StatusTypeDef waveform_stop(void)
     {
         return HAL_OK;
     }
+
+    /* Take the sample table back from the transfer callbacks first. */
+    noise_active = false;
+    __HAL_DMA_DISABLE_IT(hdac.DMA_Handle1, DMA_IT_HT | DMA_IT_TC);
 
     status = HAL_TIM_Base_Stop(&htim6);
     if (status != HAL_OK)
@@ -389,7 +517,32 @@ HAL_StatusTypeDef waveform_set_type(waveform_type_t type)
         }
     }
 
-    waveform_fill_samples(type, active_sample_count);
+    /*
+     * The two modes are programmed differently, so switching modes rebuilds
+     * both the table and the timer: noise always uses the full table at its
+     * sample rate, a periodic type gets its frequency-appropriate tier back.
+     */
+    if (type == WAVEFORM_NOISE)
+    {
+        active_sample_count = WAVEFORM_MAX_SAMPLE_COUNT;
+        waveform_fill_noise(0U, active_sample_count);
+        status = waveform_configure_noise_timer();
+    }
+    else
+    {
+        active_sample_count = waveform_select_sample_count(
+            requested_frequency_hz);
+        waveform_fill_samples(type, active_sample_count);
+        status = waveform_configure_timer(
+            requested_frequency_hz,
+            active_sample_count);
+    }
+
+    if (status != HAL_OK)
+    {
+        return status;
+    }
+
     current_type = type;
 
     return restart ? waveform_start() : HAL_OK;
@@ -410,7 +563,9 @@ HAL_StatusTypeDef waveform_set_frequency(uint32_t frequency_hz)
     uint32_t sample_count;
     bool restart;
 
+    /* Noise is described by its sample rate; see waveform_set_sample_rate(). */
     if (!initialized
+        || (current_type == WAVEFORM_NOISE)
         || (frequency_hz < WAVEFORM_MIN_FREQUENCY_HZ)
         || (frequency_hz > WAVEFORM_MAX_FREQUENCY_HZ))
     {
@@ -470,6 +625,58 @@ HAL_StatusTypeDef waveform_step_frequency(int32_t step_hz)
     return waveform_set_frequency((uint32_t)next_frequency_hz);
 }
 
+HAL_StatusTypeDef waveform_set_sample_rate(uint32_t sample_rate_hz)
+{
+    HAL_StatusTypeDef status;
+    bool restart;
+
+    if (!initialized
+        || (current_type != WAVEFORM_NOISE)
+        || (sample_rate_hz < WAVEFORM_NOISE_MIN_RATE_HZ)
+        || (sample_rate_hz > WAVEFORM_NOISE_MAX_RATE_HZ))
+    {
+        return HAL_ERROR;
+    }
+    if (sample_rate_hz == requested_sample_rate_hz)
+    {
+        return HAL_OK;
+    }
+
+    restart = running;
+    if (restart)
+    {
+        status = waveform_stop();
+        if (status != HAL_OK)
+        {
+            return status;
+        }
+    }
+
+    requested_sample_rate_hz = sample_rate_hz;
+
+    /*
+     * Only the trigger rate changes: the table keeps the noise it already
+     * holds, it is just consumed at the new rate.
+     */
+    status = waveform_configure_noise_timer();
+    if (status != HAL_OK)
+    {
+        return status;
+    }
+
+    return restart ? waveform_start() : HAL_OK;
+}
+
+uint32_t waveform_get_sample_rate(void)
+{
+    return requested_sample_rate_hz;
+}
+
+uint32_t waveform_get_actual_sample_rate_millihz(void)
+{
+    return actual_sample_rate_millihz;
+}
+
 bool waveform_is_running(void)
 {
     return running;
@@ -487,7 +694,8 @@ const char *waveform_type_name(waveform_type_t type)
         "SINE",
         "SQUARE",
         "TRIANGLE",
-        "SAWTOOTH"
+        "SAWTOOTH",
+        "NOISE"
     };
 
     return ((uint32_t)type < (uint32_t)WAVEFORM_TYPE_COUNT)

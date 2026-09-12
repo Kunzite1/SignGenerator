@@ -12,9 +12,15 @@ extern "C" {
 
 typedef struct {
     const char *waveform_name;
+
+    /* In sample_rate_mode these two carry the sample rate in Hz instead. */
     uint32_t set_frequency_hz;
     uint32_t actual_frequency_millihz;
+
     bool running;
+
+    /* Noise type: label the two rate lines as sample rates rather than hertz. */
+    bool sample_rate_mode;
 } app_ui_state_t;
 
 /**

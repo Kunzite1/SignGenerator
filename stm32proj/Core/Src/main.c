@@ -70,6 +70,8 @@ void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
 
 static int32_t app_get_frequency_step(bool increase);
+static uint32_t app_get_next_sample_rate(bool increase);
+static HAL_StatusTypeDef app_step_rate(bool increase);
 static void app_handle_events(app_button_event_t events);
 static void app_refresh_status(void);
 static void app_report_status(void);
@@ -129,6 +131,46 @@ static int32_t app_get_frequency_step(bool increase)
   return step_hz;
 }
 
+/*
+ * The noise type has no output frequency: its keys move the sample rate, and
+ * that range spans more than an order of magnitude, so step by octaves instead
+ * of the periodic bands above.
+ */
+static uint32_t app_get_next_sample_rate(bool increase)
+{
+  uint32_t sample_rate_hz = waveform_get_sample_rate();
+
+  if (increase)
+  {
+    sample_rate_hz *= 2U;
+    if (sample_rate_hz > WAVEFORM_NOISE_MAX_RATE_HZ)
+    {
+      sample_rate_hz = WAVEFORM_NOISE_MAX_RATE_HZ;
+    }
+  }
+  else
+  {
+    sample_rate_hz /= 2U;
+    if (sample_rate_hz < WAVEFORM_NOISE_MIN_RATE_HZ)
+    {
+      sample_rate_hz = WAVEFORM_NOISE_MIN_RATE_HZ;
+    }
+  }
+
+  return sample_rate_hz;
+}
+
+/** The frequency keys drive whichever rate the current type is defined by. */
+static HAL_StatusTypeDef app_step_rate(bool increase)
+{
+  if (waveform_get_type() == WAVEFORM_NOISE)
+  {
+    return waveform_set_sample_rate(app_get_next_sample_rate(increase));
+  }
+
+  return waveform_step_frequency(app_get_frequency_step(increase));
+}
+
 static void app_handle_events(app_button_event_t events)
 {
   HAL_StatusTypeDef status = HAL_OK;
@@ -147,13 +189,13 @@ static void app_handle_events(app_button_event_t events)
       && ((events & (APP_BUTTON_EVENT_FREQ_DOWN | APP_BUTTON_EVENT_FREQ_UP))
           == APP_BUTTON_EVENT_FREQ_DOWN))
   {
-    status = waveform_step_frequency(app_get_frequency_step(false));
+    status = app_step_rate(false);
   }
   else if ((status == HAL_OK)
            && ((events & (APP_BUTTON_EVENT_FREQ_DOWN | APP_BUTTON_EVENT_FREQ_UP))
                == APP_BUTTON_EVENT_FREQ_UP))
   {
-    status = waveform_step_frequency(app_get_frequency_step(true));
+    status = app_step_rate(true);
   }
 
   if (status != HAL_OK)
@@ -164,11 +206,17 @@ static void app_handle_events(app_button_event_t events)
 
 static void app_refresh_status(void)
 {
+  bool noise_mode = (waveform_get_type() == WAVEFORM_NOISE);
   app_ui_state_t ui_state = {
     .waveform_name = waveform_type_name(waveform_get_type()),
-    .set_frequency_hz = waveform_get_frequency(),
-    .actual_frequency_millihz = waveform_get_actual_frequency_millihz(),
-    .running = waveform_is_running()
+    .set_frequency_hz = noise_mode
+        ? waveform_get_sample_rate()
+        : waveform_get_frequency(),
+    .actual_frequency_millihz = noise_mode
+        ? waveform_get_actual_sample_rate_millihz()
+        : waveform_get_actual_frequency_millihz(),
+    .running = waveform_is_running(),
+    .sample_rate_mode = noise_mode
   };
 
   (void)app_ui_render(&ui_state);
@@ -177,19 +225,37 @@ static void app_refresh_status(void)
 static void app_report_status(void)
 {
   char message[96];
-  uint32_t actual_millihz = waveform_get_actual_frequency_millihz();
   int length;
 
-  length = snprintf(
-      message,
-      sizeof(message),
-      "wave=%s set=%luHz actual=%lu.%03luHz points=%lu state=%s\r\n",
-      waveform_type_name(waveform_get_type()),
-      (unsigned long)waveform_get_frequency(),
-      (unsigned long)(actual_millihz / 1000U),
-      (unsigned long)(actual_millihz % 1000U),
-      (unsigned long)waveform_get_sample_count(),
-      waveform_is_running() ? "RUN" : "STOP");
+  if (waveform_get_type() == WAVEFORM_NOISE)
+  {
+    uint32_t actual_millihz = waveform_get_actual_sample_rate_millihz();
+
+    length = snprintf(
+        message,
+        sizeof(message),
+        "wave=%s rate=%luSPS actual=%luSPS points=%lu state=%s\r\n",
+        waveform_type_name(waveform_get_type()),
+        (unsigned long)waveform_get_sample_rate(),
+        (unsigned long)(actual_millihz / 1000U),
+        (unsigned long)waveform_get_sample_count(),
+        waveform_is_running() ? "RUN" : "STOP");
+  }
+  else
+  {
+    uint32_t actual_millihz = waveform_get_actual_frequency_millihz();
+
+    length = snprintf(
+        message,
+        sizeof(message),
+        "wave=%s set=%luHz actual=%lu.%03luHz points=%lu state=%s\r\n",
+        waveform_type_name(waveform_get_type()),
+        (unsigned long)waveform_get_frequency(),
+        (unsigned long)(actual_millihz / 1000U),
+        (unsigned long)(actual_millihz % 1000U),
+        (unsigned long)waveform_get_sample_count(),
+        waveform_is_running() ? "RUN" : "STOP");
+  }
 
   if (length > 0)
   {
