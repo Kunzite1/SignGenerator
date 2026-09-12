@@ -18,6 +18,7 @@ compile_commands.json
 
 # Local CMake and IDE state
 CMakeUserPresets.json
+.vscode/
 .cache/
 .metadata/
 RemoteSystemsTempFiles/

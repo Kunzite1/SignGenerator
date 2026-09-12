@@ -55,18 +55,18 @@ cd SignGenerator
 ```
 
 ```sh
-./build.sh
+./32build.sh
 ```
 
-脚本默认构建 Debug，并在 `build/Debug/` 生成 ELF、HEX 和 BIN；发布构建或全新重建可使用 `./build.sh Release`、`./build.sh --clean`。
+脚本默认构建 Debug，并在 `build/Debug/` 生成 ELF、HEX 和 BIN；发布构建或全新重建可使用 `./32build.sh Release`、`./32build.sh --clean`。
 
 连接目标板的 SWDIO、SWCLK、GND、VTref 和 NRST 后烧录：
 
 ```sh
-./flash.sh
+./32flash.sh
 ```
 
-烧录脚本会先重新构建，再通过 OpenOCD 完成烧录、校验和复位。仅检查命令而不访问硬件可运行 `./flash.sh --no-build --dry-run`。
+烧录脚本会先重新构建，再通过 OpenOCD 完成烧录、校验和复位。仅检查命令而不访问硬件可运行 `./32flash.sh --no-build --dry-run`。
 
 硬件配置的唯一源文件是 [`stm32proj/stm32proj.ioc`](./stm32proj/stm32proj.ioc)。修改引脚或外设后用 STM32CubeMX 重新生成，再从全新的构建目录验证。
 
@@ -74,8 +74,8 @@ cd SignGenerator
 
 ```text
 .
-├── build.sh                     # Debug/Release 构建及产物转换
-├── flash.sh                     # ST-Link/OpenOCD 烧录
+├── 32build.sh                   # Debug/Release 构建及产物转换
+├── 32flash.sh                   # ST-Link/OpenOCD 烧录
 ├── docs/                        # 原理图、参考项目和后续测试记录
 └── stm32proj/
     ├── Core/Inc、Core/Src       # 生成代码和手写功能模块

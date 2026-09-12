@@ -12,7 +12,7 @@ jobs="${SIGNGEN_BUILD_JOBS:-}"
 
 usage() {
     cat <<'EOF'
-用法：./build.sh [Debug|Release] [--clean] [--jobs 数量]
+用法：./32build.sh [Debug|Release] [--clean] [--jobs 数量]
 
 选项：
   Debug|Release  选择构建类型，默认为 Debug
@@ -106,7 +106,7 @@ if [[ -f "${BUILD_DIR}/CMakeCache.txt" ]]; then
         "${BUILD_DIR}/CMakeCache.txt")"
     if [[ "${cached_generator}" != "Unix Makefiles" ]]; then
         echo "错误：${BUILD_DIR} 使用 '${cached_generator}'，本脚本使用 'Unix Makefiles'。" >&2
-        echo "请执行 './build.sh ${build_type} --clean' 重新配置。" >&2
+        echo "请执行 './32build.sh ${build_type} --clean' 重新配置。" >&2
         exit 2
     fi
 fi
