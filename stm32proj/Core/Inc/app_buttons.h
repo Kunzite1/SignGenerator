@@ -27,8 +27,8 @@ void app_buttons_init(void);
  *
  * Call this function on every main-loop iteration. It performs a GPIO scan at
  * most once every 10 ms and returns a bit mask of newly generated events.
- * Frequency keys repeat while held; the other keys generate one event per
- * press.
+ * The onboard and external function keys share events. Frequency keys repeat
+ * while held; the other keys generate one event per physical press.
  */
 app_button_event_t app_buttons_poll(void);
 

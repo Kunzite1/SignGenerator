@@ -67,6 +67,10 @@ void Error_Handler(void);
 #define KEY_FREQ_UP_GPIO_Port GPIOB
 #define STATUS_LED_Pin GPIO_PIN_8
 #define STATUS_LED_GPIO_Port GPIOA
+#define ONBOARD_KEY_START_STOP_Pin GPIO_PIN_8
+#define ONBOARD_KEY_START_STOP_GPIO_Port GPIOC
+#define ONBOARD_KEY_WAVE_Pin GPIO_PIN_9
+#define ONBOARD_KEY_WAVE_GPIO_Port GPIOC
 
 /* USER CODE BEGIN Private defines */
 

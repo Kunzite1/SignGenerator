@@ -23,6 +23,26 @@ typedef struct {
 
 static button_state_t buttons[] = {
     {
+        ONBOARD_KEY_START_STOP_GPIO_Port,
+        ONBOARD_KEY_START_STOP_Pin,
+        APP_BUTTON_EVENT_START_STOP,
+        false,
+        false,
+        false,
+        0U,
+        0U
+    },
+    {
+        ONBOARD_KEY_WAVE_GPIO_Port,
+        ONBOARD_KEY_WAVE_Pin,
+        APP_BUTTON_EVENT_WAVE_NEXT,
+        false,
+        false,
+        false,
+        0U,
+        0U
+    },
+    {
         KEY_START_STOP_GPIO_Port,
         KEY_START_STOP_Pin,
         APP_BUTTON_EVENT_START_STOP,

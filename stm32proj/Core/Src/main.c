@@ -46,6 +46,7 @@
 
 #define DISPLAY_POWER_ON_DELAY_MS  50U
 #define DISPLAY_RETRY_PERIOD_MS    2000U
+#define HEARTBEAT_HALF_PERIOD_MS   500U
 
 /* USER CODE END PD */
 
@@ -59,6 +60,7 @@
 /* USER CODE BEGIN PV */
 
 static uint32_t display_last_attempt_ms;
+static uint32_t heartbeat_last_toggle_ms;
 
 /* USER CODE END PV */
 
@@ -71,6 +73,7 @@ static void app_handle_buttons(app_button_event_t events);
 static void app_refresh_status(void);
 static void app_report_status(void);
 static void app_service_display(void);
+static void app_service_heartbeat(void);
 
 /* USER CODE END PFP */
 
@@ -167,10 +170,6 @@ static void app_refresh_status(void)
     .running = waveform_is_running()
   };
 
-  HAL_GPIO_WritePin(
-      STATUS_LED_GPIO_Port,
-      STATUS_LED_Pin,
-      ui_state.running ? GPIO_PIN_RESET : GPIO_PIN_SET);
   (void)app_ui_render(&ui_state);
 }
 
@@ -225,6 +224,20 @@ static void app_service_display(void)
   }
 }
 
+static void app_service_heartbeat(void)
+{
+  uint32_t now = HAL_GetTick();
+
+  if ((uint32_t)(now - heartbeat_last_toggle_ms)
+      < HEARTBEAT_HALF_PERIOD_MS)
+  {
+    return;
+  }
+
+  heartbeat_last_toggle_ms = now;
+  HAL_GPIO_TogglePin(STATUS_LED_GPIO_Port, STATUS_LED_Pin);
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -264,6 +277,7 @@ int main(void)
   /* USER CODE BEGIN 2 */
 
   app_buttons_init();
+  heartbeat_last_toggle_ms = HAL_GetTick();
   if (waveform_init() != HAL_OK)
   {
     Error_Handler();
@@ -298,6 +312,7 @@ int main(void)
     }
 
     app_service_display();
+    app_service_heartbeat();
     HAL_Delay(1U);
   }
   /* USER CODE END 3 */
