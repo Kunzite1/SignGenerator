@@ -3,7 +3,6 @@
 set -Eeuo pipefail
 
 readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-readonly REPO_DIR="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 
 build_type="Debug"
 build_before_flash=true
@@ -73,7 +72,7 @@ if ! command -v openocd >/dev/null 2>&1; then
     exit 127
 fi
 
-readonly ELF_FILE="${REPO_DIR}/build/${build_type}/stm32proj.elf"
+readonly ELF_FILE="${SCRIPT_DIR}/build/${build_type}/stm32proj.elf"
 if [[ ! -s "${ELF_FILE}" ]]; then
     echo "错误：未找到待烧录固件 '${ELF_FILE}'。" >&2
     echo "请先运行 './stm32proj/32build.sh ${build_type}'。" >&2

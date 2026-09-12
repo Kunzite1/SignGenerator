@@ -3,7 +3,6 @@
 set -Eeuo pipefail
 
 readonly SOURCE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-readonly REPO_DIR="$(cd -- "${SOURCE_DIR}/.." && pwd)"
 readonly TOOLCHAIN_FILE="${SOURCE_DIR}/cmake/gcc-arm-none-eabi.cmake"
 
 build_type="Debug"
@@ -83,11 +82,11 @@ for required_command in \
     fi
 done
 
-readonly BUILD_DIR="${REPO_DIR}/build/${build_type}"
+readonly BUILD_DIR="${SOURCE_DIR}/build/${build_type}"
 
 if [[ "${clean_build}" == true ]]; then
     case "${BUILD_DIR}" in
-        "${REPO_DIR}/build/Debug"|"${REPO_DIR}/build/Release")
+        "${SOURCE_DIR}/build/Debug"|"${SOURCE_DIR}/build/Release")
             cmake -E remove_directory "${BUILD_DIR}"
             ;;
         *)

@@ -8,7 +8,7 @@ Firmware lives under `stm32proj/`: CubeMX-generated code is in `Core/`, HAL/CMSI
 
 Use the repository scripts from its root:
 
-- `./stm32proj/32build.sh` — configure and build Debug firmware, then create ELF, HEX, and BIN artifacts under `build/Debug/`.
+- `./stm32proj/32build.sh` — configure and build Debug firmware, then create ELF, HEX, and BIN artifacts under `stm32proj/build/Debug/`.
 - `./stm32proj/32build.sh Release --clean` — perform a fresh size-optimized build.
 - `./stm32proj/32flash.sh` — rebuild, then program and verify through ST-Link/OpenOCD.
 - `./stm32proj/32flash.sh --no-build --dry-run` — validate the flash command without accessing hardware.

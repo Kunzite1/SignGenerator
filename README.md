@@ -61,7 +61,7 @@ cd SignGenerator
 ./stm32proj/32build.sh
 ```
 
-脚本默认构建 Debug，并在 `build/Debug/` 生成 ELF、HEX 和 BIN；发布构建或全新重建可使用 `./stm32proj/32build.sh Release`、`./stm32proj/32build.sh --clean`。
+脚本默认构建 Debug，并在 `stm32proj/build/Debug/` 生成 ELF、HEX 和 BIN；发布构建或全新重建可使用 `./stm32proj/32build.sh Release`、`./stm32proj/32build.sh --clean`。
 
 连接目标板的 SWDIO、SWCLK、GND、VTref 和 NRST 后烧录：
 
@@ -91,7 +91,7 @@ CubeMX 再生成时，仅在 `USER CODE BEGIN/END` 块内直接修改生成文�
 
 ## 到板后验收
 
-1. 从全新 `build/Debug` 目录编译并生成 ELF/BIN/HEX；
+1. 从全新 `stm32proj/build/Debug` 目录编译并生成 ELF/BIN/HEX；
 2. ST-Link 能识别 STM32F103RC，完成烧录、校验和复位；
 3. PA4 能输出约 1 kHz 正弦波，并能切换其余三种波形；
 4. PC8/PC9 和 PB12/PB13 分别验证启停与波形切换，PB14/PB15 验证频率调节；
