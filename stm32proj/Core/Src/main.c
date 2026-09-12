@@ -306,7 +306,7 @@ int main(void)
     /* USER CODE BEGIN 3 */
     app_button_event_t events = app_buttons_poll();
 
-    /* Console keys map onto the same events as the physical buttons. */
+    /* Console keys reuse the button events; app_serial.c currently disables them. */
     events = (app_button_event_t)(events | app_serial_poll());
 
     if (events != APP_BUTTON_EVENT_NONE)

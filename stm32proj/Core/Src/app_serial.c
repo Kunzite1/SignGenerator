@@ -4,11 +4,22 @@
 
 #include "usart.h"
 
+/*
+ * Set to 1 to make the q/w/e/r single-key commands active again; that is how
+ * the waveforms were verified before the external keys were wired up. It is 0
+ * for normal use, where the buttons are the only input: nothing here produces
+ * events, but the receive path is still drained so stray host input cannot
+ * latch the overrun flag.
+ */
+#define APP_SERIAL_KEY_CONTROL  0
+
+static bool initialized;
+
+#if APP_SERIAL_KEY_CONTROL
+
 /* Keep firmware console output ASCII: the host script decodes it as-is. */
 static const char serial_hint[] =
     "\r\nconsole: q=start/stop w=next-wave e=freq- r=freq+\r\n";
-
-static bool initialized;
 
 /*
  * USART1 is shared with the status log written by app_report_status(), so this
@@ -43,6 +54,8 @@ static app_button_event_t serial_decode(uint8_t byte)
     }
 }
 
+#endif /* APP_SERIAL_KEY_CONTROL */
+
 void app_serial_init(void)
 {
     /* Drop anything the host typed while the firmware was still starting. */
@@ -53,11 +66,13 @@ void app_serial_init(void)
 
     initialized = true;
 
+#if APP_SERIAL_KEY_CONTROL
     (void)HAL_UART_Transmit(
         &huart1,
         (uint8_t *)serial_hint,
         (uint16_t)(sizeof(serial_hint) - 1U),
         50U);
+#endif
 }
 
 app_button_event_t app_serial_poll(void)
@@ -82,9 +97,14 @@ app_button_event_t app_serial_poll(void)
 
     while (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_RXNE) != RESET)
     {
+#if APP_SERIAL_KEY_CONTROL
         uint8_t byte = (uint8_t)(huart1.Instance->DR & 0xFFU);
 
         events = (app_button_event_t)(events | serial_decode(byte));
+#else
+        /* Console keys are off: reading DR clears RXNE, nothing is decoded. */
+        (void)huart1.Instance->DR;
+#endif
     }
 
     return events;
