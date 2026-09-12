@@ -31,6 +31,7 @@
 #include <stdio.h>
 
 #include "app_buttons.h"
+#include "app_serial.h"
 #include "app_ui.h"
 #include "waveform.h"
 
@@ -69,7 +70,7 @@ void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
 
 static int32_t app_get_frequency_step(bool increase);
-static void app_handle_buttons(app_button_event_t events);
+static void app_handle_events(app_button_event_t events);
 static void app_refresh_status(void);
 static void app_report_status(void);
 static void app_service_display(void);
@@ -128,7 +129,7 @@ static int32_t app_get_frequency_step(bool increase)
   return step_hz;
 }
 
-static void app_handle_buttons(app_button_event_t events)
+static void app_handle_events(app_button_event_t events)
 {
   HAL_StatusTypeDef status = HAL_OK;
 
@@ -277,6 +278,7 @@ int main(void)
   /* USER CODE BEGIN 2 */
 
   app_buttons_init();
+  app_serial_init();
   heartbeat_last_toggle_ms = HAL_GetTick();
   if (waveform_init() != HAL_OK)
   {
@@ -304,9 +306,12 @@ int main(void)
     /* USER CODE BEGIN 3 */
     app_button_event_t events = app_buttons_poll();
 
+    /* Console keys map onto the same events as the physical buttons. */
+    events = (app_button_event_t)(events | app_serial_poll());
+
     if (events != APP_BUTTON_EVENT_NONE)
     {
-      app_handle_buttons(events);
+      app_handle_events(events);
       app_refresh_status();
       app_report_status();
     }
